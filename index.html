@@ -125,6 +125,7 @@
     .primary{ background: rgba(255,47,90,.20); border-color: rgba(255,47,90,.45); }
     .primary:hover{ background: rgba(255,47,90,.30); border-color: rgba(255,47,90,.60); }
 
+    /* Toast bien mis en valeur (2 lignes) */
     .toast{
       position:absolute;
       left:18px;
@@ -136,25 +137,36 @@
       z-index:5;
     }
     .toast .bubble{
-      max-width: min(760px, 96%);
-      padding:10px 14px;
-      border-radius: 999px;
-      background: rgba(0,0,0,.28);
+      max-width: min(860px, 96%);
+      padding:12px 16px;
+      border-radius: 18px;
+      background: rgba(0,0,0,.30);
       border:1px solid rgba(255,255,255,.18);
       box-shadow: 0 18px 60px rgba(0,0,0,.35);
       backdrop-filter: blur(10px);
-      color: rgba(255,255,255,.95);
-      font-size: 13.5px;
-      line-height: 1.3;
+      color: rgba(255,255,255,.96);
       opacity:0;
-      transform: translateY(6px);
+      transform: translateY(8px) scale(.99);
       transition: opacity .18s ease, transform .18s ease;
       text-align:center;
       white-space: normal;
     }
     .toast .bubble.show{
       opacity:1;
-      transform: translateY(0);
+      transform: translateY(0) scale(1);
+    }
+    .toastTitle{
+      font-weight: 950;
+      letter-spacing: -.02em;
+      font-size: 19px;
+      line-height: 1.05;
+      text-transform: uppercase;
+    }
+    .toastSub{
+      margin-top: 6px;
+      font-size: 13px;
+      color: rgba(255,255,255,.84);
+      line-height: 1.25;
     }
   </style>
 </head>
@@ -165,22 +177,22 @@
       <div class="topbar"></div>
 
       <div class="toast" aria-live="polite" aria-atomic="true">
-        <div class="bubble" id="toast"></div>
+        <div class="bubble" id="toast">
+          <div class="toastTitle" id="toastTitle"></div>
+          <div class="toastSub" id="toastSub"></div>
+        </div>
       </div>
 
       <header>
         <div class="title">
           <h1 id="uiTitle">Clara Runner</h1>
-          <p id="uiDesc">
-            Left/Right: change lane. Space: start, jump, restart. P: pause.
-            Flowers give points + combo. Soufiane gives a second life (max 2).
-          </p>
+          <p id="uiDesc"></p>
         </div>
 
         <div class="chips" style="gap:10px;">
-          <span class="chip" id="chip1">Left/Right: lane</span>
-          <span class="chip" id="chip2">Space: start/jump/restart</span>
-          <span class="chip" id="chip3">P: pause</span>
+          <span class="chip" id="chip1"></span>
+          <span class="chip" id="chip2"></span>
+          <span class="chip" id="chip3"></span>
 
           <div class="lang" title="Language">
             <button id="btnFR" class="active">FR</button>
@@ -202,8 +214,7 @@
   </main>
 
   <script>
-    // bump if cache issues
-    const ASSET_VERSION = "v62";
+    const ASSET_VERSION = "v63";
 
     const ASSETS = {
       clara: `clara.png?${ASSET_VERSION}`,
@@ -224,7 +235,10 @@
       hint: document.getElementById("hint"),
       btnRestart: document.getElementById("btnRestart"),
       btnMusic: document.getElementById("btnMusic"),
-      toast: document.getElementById("toast"),
+
+      toastBox: document.getElementById("toast"),
+      toastTitle: document.getElementById("toastTitle"),
+      toastSub: document.getElementById("toastSub"),
 
       uiTitle: document.getElementById("uiTitle"),
       uiDesc: document.getElementById("uiDesc"),
@@ -237,27 +251,36 @@
 
     const W = canvas.width, H = canvas.height;
 
-    const BEST_KEY = "clara_runner_best_v62";
+    const BEST_KEY = "clara_runner_best_v63";
     let best = Number(localStorage.getItem(BEST_KEY) || 0);
+
+    // ------- Audio -------
+    const audio = new Audio();
+    audio.loop = true;
+    audio.preload = "auto";
+    audio.src = ASSETS.music;
+    let musicReady = false;
+    audio.addEventListener("canplaythrough", () => musicReady = true);
+    audio.addEventListener("error", () => musicReady = false);
 
     // ------- i18n (FR + Català) -------
     const I18N = {
       fr: {
         title: "Clara Runner",
-        desc: "Gauche/Droite : changer de voie. Espace : démarrer, sauter, recommencer. P : pause. Les fleurs donnent des points + combo. Soufiane donne une deuxième vie (max 2).",
-        chip1: "Gauche/Droite : voie",
-        chip2: "Espace : start/saut/restart",
+        desc: "Gauche/Droite : changer de voie. Espace : démarrer / sauter / recommencer. P : pause. Fleurs = points + combo. Soufiane = protection (max 2 vies).",
+        chip1: "← / → : voie",
+        chip2: "Espace : start / saut / restart",
         chip3: "P : pause",
         restartBtn: "Restart",
-        musicPlay: "Play music",
-        musicStop: "Stop music",
+        musicPlay: "Musique",
+        musicStop: "Stop",
         overlays: {
-          startTitle: "Appuie sur Espace pour démarrer",
-          startSub: "Gauche/Droite : voie. Espace : sauter. P : pause.",
-          pausedTitle: "Pause",
-          pausedSub: "Appuie sur P pour reprendre",
-          overTitle: "Game Over",
-          overSub: "Appuie sur Espace pour recommencer"
+          startTitle: "APPUIE SUR ESPACE",
+          startSub: "Et montre qui est la boss.",
+          pausedTitle: "PAUSE",
+          pausedSub: "OK… mais reviens vite. (P pour reprendre)",
+          overTitle: "AÏE. PAS COMME ÇA 😭",
+          overSub: "Espace pour une revanche immédiate."
         },
         hud: {
           flowers: "Fleurs",
@@ -275,42 +298,51 @@
           soufiane: "Soufiane"
         },
         toast: {
-          protected: "Tu es protégée par ton héros : Soufiane.",
-          alreadyProtected: "Soufiane dit : tu es déjà au max, mais je prends quand même le crédit.",
-          flowerNice: [
-            "Fleur ramassée. Style impeccable.",
-            "Une fleur de plus. Ça devient sérieux.",
-            "Combo propre. Très propre.",
-            "Ça sent la victoire (et les fleurs)."
+          start: [
+            { title:"GO GO GO.", sub:"Objectif : record + flow." },
+            { title:"C'EST PARTI.", sub:"Pas de panique. Juste du style." }
+          ],
+          hero: [
+            { title:"TON HÉROS EST LÀ.", sub:"Soufiane active le mode bodyguard 🛡️" },
+            { title:"PROTECTION ACTIVÉE.", sub:"Soufiane : « t’inquiète. j’gère. »" }
+          ],
+          alreadyHero: [
+            { title:"DÉJÀ AU MAX.", sub:"Soufiane prend quand même le mérite. Évidemment." }
           ],
           shieldUsed: [
-            "Bouclier consommé. Soufiane a fait le taf.",
-            "Impact absorbé. Sauvetage propre.",
-            "Tu es passée à ça. Merci Soufiane."
+            { title:"SAUVETAGE IN EXTREMIS.", sub:"Soufiane a pris le choc. Respect." },
+            { title:"BOUCLIER CONSOMMÉ.", sub:"Tu vis encore. C’est ça le plus important." },
+            { title:"OUF.", sub:"Ça passe… grâce au bodyguard." }
+          ],
+          flowerNice: [
+            { title:"JOLI.", sub:"Une fleur de plus. Ça brille." },
+            { title:"CLEAN.", sub:"Combo qui sent bon le record." },
+            { title:"STYLE.", sub:"Fleurs + flow = danger." }
           ],
           gameOver: [
-            "Fin de run. Prochaine tentative : encore plus forte.",
-            "Game over. Mais les vibes restent bonnes.",
-            "On recommence ? Cette fois, record."
-          ]
+            { title:"OK… ON EN PARLE.", sub:"T’avais le rythme. Revanche ?" },
+            { title:"NON MAIS OH.", sub:"Tu t’es fait piéger. Ça arrive même aux stars." },
+            { title:"FIN DU RUN.", sub:"Mais les vibes ? Impeccables." }
+          ],
+          catalanMemeWord: "KHODDER"
         }
       },
       ca: {
         title: "Clara Runner",
-        desc: "Esquerra/Dreta: canviar de carril. Espai: començar, saltar, reiniciar. P: pausa. Les flors donen punts + combo. Soufiane dona una segona vida (màx 2).",
-        chip1: "Esquerra/Dreta: carril",
-        chip2: "Espai: start/salt/restart",
-        chip3: "P: pausa",
+        desc: "Esquerra/Dreta: carril. Espai: començar / saltar / reiniciar. P: pausa. Flors = punts + combo. Soufiane = protecció (màx 2 vides).",
+        chip1: "← / → : carril",
+        chip2: "Espai : start / salt / restart",
+        chip3: "P : pausa",
         restartBtn: "Reiniciar",
         musicPlay: "Música",
-        musicStop: "Atura música",
+        musicStop: "Atura",
         overlays: {
-          startTitle: "Prem Espai per començar",
-          startSub: "Esquerra/Dreta: carril. Espai: saltar. P: pausa.",
-          pausedTitle: "Pausa",
-          pausedSub: "Prem P per continuar",
-          overTitle: "Fi de partida",
-          overSub: "Prem Espai per reiniciar"
+          startTitle: "PREM ESPAI",
+          startSub: "I deixa’ls amb la boca oberta.",
+          pausedTitle: "PAUSA",
+          pausedSub: "Va… torna, eh? (P per continuar)",
+          overTitle: "MARE MEVA… 😭",
+          overSub: "Espai per la revenja (ara mateix)."
         },
         hud: {
           flowers: "Flors",
@@ -328,24 +360,33 @@
           soufiane: "Soufiane"
         },
         toast: {
-          protected: "Has quedat protegida pel teu heroi: Soufiane.",
-          alreadyProtected: "Soufiane diu: ja tens el màxim… però igualment ho celebro.",
-          flowerNice: [
-            "Flor recollida. Elegant.",
-            "Una flor més. Això va bé.",
-            "Combo net. Molt net.",
-            "Això fa olor de victòria."
+          start: [
+            { title:"VA, SOM-HI!", sub:"Objectiu: rècord i elegància." },
+            { title:"APA!", sub:"Avui toca jugar fi." }
+          ],
+          hero: [
+            { title:"EL TEU HEROI ÉS AQUÍ.", sub:"Soufiane activa mode guardaespatlles 🛡️" },
+            { title:"PROTECCIÓ ACTIVADA.", sub:"Soufiane: « tranquil·la, jo m’encarrego. »" }
+          ],
+          alreadyHero: [
+            { title:"JA ESTÀS AL MÀXIM.", sub:"Soufiane igualment ho celebra. Clar." }
           ],
           shieldUsed: [
-            "Escut consumit. Soufiane ha complert.",
-            "Cop absorbit. Salvament net.",
-            "Has passat per mil·límetres. Gràcies Soufiane."
+            { title:"OSTRES!", sub:"Soufiane ha aturat el cop. Quin nivell." },
+            { title:"AI CARAI…", sub:"Ha passat per mil·límetres. Sort." },
+            { title:"QUINA RÀBIA!", sub:"Però ei: segueixes viva. 💅" }
+          ],
+          flowerNice: [
+            { title:"ELEGANT.", sub:"Una flor més. Perfecte." },
+            { title:"MOLT NET.", sub:"Combo que fa patxoca." },
+            { title:"BONA!", sub:"Això fa olor de rècord." }
           ],
           gameOver: [
-            "Fi del run. La següent: encara millor.",
-            "Fi de partida. Però les vibes són bones.",
-            "Repetim? Aquest cop, rècord."
-          ]
+            { title:"NOOOO… OSTRES!", sub:"Això era un run de luxe. Repetim?" },
+            { title:"MARE MEVA.", sub:"T’han enganxat. Però amb estil." },
+            { title:"FI DEL RUN.", sub:"Les vibes, intactes." }
+          ],
+          catalanMemeWord: "KHODDER"
         }
       }
     };
@@ -357,6 +398,8 @@
       for (const p of parts) cur = cur?.[p];
       return cur;
     }
+    function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
     function setLang(next){
       lang = next;
       ui.btnFR.classList.toggle("active", lang === "fr");
@@ -369,9 +412,6 @@
       ui.chip3.textContent = t("chip3");
       ui.btnRestart.textContent = t("restartBtn");
       ui.btnMusic.textContent = audio.paused ? t("musicPlay") : t("musicStop");
-
-      // also refresh hint text if it was only about audio
-      // (assets hint remains correct)
     }
 
     ui.btnFR.addEventListener("click", ()=> setLang("fr"));
@@ -379,21 +419,12 @@
 
     // ------- Toast -------
     let toastTimer = 0;
-    function showToast(msg, seconds=2.2){
-      ui.toast.textContent = msg;
-      ui.toast.classList.add("show");
+    function showToast(title, sub="", seconds=2.4){
+      ui.toastTitle.textContent = title;
+      ui.toastSub.textContent = sub;
+      ui.toastBox.classList.add("show");
       toastTimer = seconds;
     }
-    function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
-
-    // Audio
-    const audio = new Audio();
-    audio.loop = true;
-    audio.preload = "auto";
-    audio.src = ASSETS.music;
-    let musicReady = false;
-    audio.addEventListener("canplaythrough", () => musicReady = true);
-    audio.addEventListener("error", () => musicReady = false);
 
     // Images
     function loadImage(src){
@@ -438,14 +469,7 @@
     }
 
     // Perspective road
-    const road = {
-      cx: W/2,
-      topY: 110,
-      botY: H - 58,
-      topW: W * 0.15,
-      botW: W * 0.80,
-      curbPad: 26
-    };
+    const road = { cx: W/2, topY: 110, botY: H - 58, topW: W * 0.15, botW: W * 0.80, curbPad: 26 };
     const lanes = [-1, 0, 1];
     const laneIndex = (lane) => lane === -1 ? 0 : (lane === 0 ? 1 : 2);
 
@@ -453,22 +477,15 @@
       const tt = (y - road.topY) / (road.botY - road.topY);
       return road.topW + tt*(road.botW - road.topW);
     }
-    function roadLeftAt(y){
-      const w = roadWAt(y);
-      return road.cx - w/2;
-    }
+    function roadLeftAt(y){ return road.cx - roadWAt(y)/2; }
     function laneX(lane, y){
       const left = roadLeftAt(y);
       const w = roadWAt(y);
       const lw = w/3;
       return left + lw*(laneIndex(lane) + 0.5);
     }
-
-    // force separation at spawn so lanes look separate
     const SPAWN_SEPARATION_Y = road.topY + 170;
-    function entityX(lane, y){
-      return laneX(lane, Math.max(y, SPAWN_SEPARATION_Y));
-    }
+    function entityX(lane, y){ return laneX(lane, Math.max(y, SPAWN_SEPARATION_Y)); }
 
     // Helpers
     function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
@@ -507,11 +524,9 @@
       hudPulse: 0,
       lastLifeSpawnAttempt: 0,
 
-      // chat throttle
       lastFlowerToastAt: -999
     };
 
-    // Player
     const player = {
       lane: 0,
       y: H - 180,
@@ -532,7 +547,7 @@
     };
 
     let obstacles = [];
-    let pickups = []; // {type:"flower"|"life", lane, y}
+    let pickups = [];
 
     // Controls
     function requestLane(delta){
@@ -561,7 +576,6 @@
     function restart(toPlay){
       obstacles = [];
       pickups = [];
-
       game.state = "start";
       game.scroll = 0;
       game.speed = 240;
@@ -571,7 +585,6 @@
       game.score = 0;
       game.flowers = 0;
       game.level = 1;
-
       game.mult = 1.0;
       game.combo = 0;
       game.lastFlowerTime = 0;
@@ -595,7 +608,7 @@
 
       if (toPlay) game.state = "play";
 
-      ui.toast.classList.remove("show");
+      ui.toastBox.classList.remove("show");
       toastTimer = 0;
     }
 
@@ -609,7 +622,8 @@
         game.combo = 0;
         game.mult = 1.0;
 
-        showToast(pick(t("toast.shieldUsed")), 2.2);
+        const m = pick(t("toast.shieldUsed"));
+        showToast(m.title, m.sub, 2.2);
 
         obstacles = obstacles.filter(o => o.y < road.topY + 40 || o.y > player.y + 90);
         return;
@@ -623,8 +637,14 @@
         localStorage.setItem(BEST_KEY, String(best));
       }
 
-      const extra = ` (${t("hud.flowers")}: ${game.flowers}, ${t("hud.score")}: ${game.score})`;
-      showToast(pick(t("toast.gameOver")) + extra, 3.2);
+      // Toast “mort” très drôle + petit clin d’œil
+      const m = pick(t("toast.gameOver"));
+      const meme = (lang === "ca") ? t("toast.catalanMemeWord") : "AIIII";
+      showToast(
+        `${meme}… ${m.title}`,
+        `${m.sub} • ${t("hud.flowers")}: ${game.flowers} • ${t("hud.score")}: ${game.score}`,
+        3.4
+      );
     }
 
     window.addEventListener("keydown", (e) => {
@@ -642,7 +662,8 @@
 
         if (game.state === "start"){
           game.state = "play";
-          showToast(lang === "fr" ? "Bonne chance. Fais un record." : "Sort. Fes un rècord.", 2.0);
+          const m = pick(t("toast.start"));
+          showToast(m.title, m.sub, 2.0);
           return;
         }
         if (game.state === "over"){
@@ -674,12 +695,11 @@
 
     function updateDifficulty(dt){
       game.timeAlive += dt;
-
       game.level = clamp(1 + Math.floor(game.timeAlive / 14), 1, 60);
 
       const k = clamp(game.timeAlive / 110, 0, 1);
-      game.speed = 240 + k * 340;         // 240 -> 580
-      game.spawnEvery = 1.08 - k * 0.32;  // 1.08 -> 0.76
+      game.speed = 240 + k * 340;
+      game.spawnEvery = 1.08 - k * 0.32;
 
       const targetMult = 1 + clamp(game.combo / 18, 0, 2.8);
       game.mult = lerp(game.mult, targetMult, 0.07);
@@ -708,7 +728,6 @@
         }
       }
 
-      // Flowers
       if (Math.random() < 0.95){
         const lane = Math.random() < 0.55 ? l2 : l1;
         const count = (lvl < 18) ? 2 : (lvl < 36 ? 3 : 4);
@@ -717,7 +736,6 @@
         }
       }
 
-      // Soufiane life
       const lifeCooldownOk = (game.t - game.lastLifeGainTime) > 6.0;
       if (lvl >= 8 && lifeCooldownOk && Math.random() < 0.16){
         const lane = lanes[Math.floor(Math.random()*3)];
@@ -769,7 +787,7 @@
 
       if (toastTimer > 0){
         toastTimer -= dt;
-        if (toastTimer <= 0) ui.toast.classList.remove("show");
+        if (toastTimer <= 0) ui.toastBox.classList.remove("show");
       }
     }
 
@@ -787,7 +805,6 @@
 
       maybeGuaranteeLife();
 
-      // Obstacles
       for (let i=obstacles.length-1;i>=0;i--){
         const o = obstacles[i];
         o.y += game.speed * dt;
@@ -795,7 +812,6 @@
         const hittable = (player.z < 42) && (game.invuln <= 0);
         const ox = entityX(o.lane, o.y);
         const py = player.y - player.z;
-
         const pr = player.jumping ? player.r*0.68 : player.r*0.82;
 
         if (hittable && circleHit(player.x, py, pr, ox, o.y, (o.r||18)*0.82)){
@@ -806,7 +822,6 @@
         if (o.y > H + 170) obstacles.splice(i,1);
       }
 
-      // Pickups
       for (let i=pickups.length-1;i>=0;i--){
         const p = pickups[i];
         p.y += game.speed * dt;
@@ -828,24 +843,24 @@
             game.score += bonus;
             game.hudPulse = 0.30;
 
-            // cute, but not spammy
-            if ((game.t - game.lastFlowerToastAt) > 3.2 && Math.random() < 0.28){
-              showToast(pick(t("toast.flowerNice")), 1.8);
+            if ((game.t - game.lastFlowerToastAt) > 3.2 && Math.random() < 0.22){
+              const m = pick(t("toast.flowerNice"));
+              showToast(m.title, m.sub, 1.8);
               game.lastFlowerToastAt = game.t;
             }
-
           } else {
-            // life
             if (game.lives < 2){
               game.lives = 2;
               game.invuln = Math.max(game.invuln, 0.45);
               game.lastLifeGainTime = game.t;
               game.hudPulse = 0.40;
-              showToast(t("toast.protected"), 2.4);
+              const m = pick(t("toast.hero"));
+              showToast(m.title, m.sub, 2.5);
             } else {
               game.score += 250;
               game.lastLifeGainTime = game.t;
-              showToast(t("toast.alreadyProtected"), 2.2);
+              const m = pick(t("toast.alreadyHero"));
+              showToast(m.title, m.sub, 2.2);
             }
           }
 
@@ -1013,7 +1028,6 @@
         ctx.beginPath(); ctx.moveTo(x2, y); ctx.lineTo(x2, y + seg); ctx.stroke();
       }
       ctx.setLineDash([]);
-
       ctx.restore();
     }
 
@@ -1049,7 +1063,6 @@
         grd.addColorStop(1, "rgba(255,209,102,0)");
         ctx.fillStyle = grd;
         ctx.beginPath(); ctx.arc(lx, ly, 34*scale, 0, Math.PI*2); ctx.fill();
-
         ctx.restore();
       }
     }
@@ -1060,7 +1073,6 @@
       o.r = r;
 
       const x = entityX(o.lane, o.y);
-
       if (IMG.obstacle) drawCircleImage(IMG.obstacle, x, o.y, r);
       else{
         ctx.save();
@@ -1159,7 +1171,6 @@
       if (!blink) return;
 
       const y = player.y - player.z;
-
       const protectedMode = (game.lives >= 2);
       const faceImg = (protectedMode && IMG.soufianeProtectClara) ? IMG.soufianeProtectClara : IMG.clara;
 
@@ -1248,7 +1259,7 @@
         ctx.fillRect(0, 0, W, H);
 
         ctx.fillStyle = "rgba(255,255,255,.98)";
-        ctx.font = "900 40px system-ui";
+        ctx.font = "900 42px system-ui";
         ctx.textAlign = "center";
         ctx.fillText(t("overlays.startTitle"), W/2, H*0.50);
 
@@ -1264,7 +1275,7 @@
         ctx.fillRect(0, 0, W, H);
 
         ctx.fillStyle = "rgba(255,255,255,.98)";
-        ctx.font = "900 46px system-ui";
+        ctx.font = "900 48px system-ui";
         ctx.textAlign = "center";
         ctx.fillText(t("overlays.pausedTitle"), W/2, H*0.50);
 
@@ -1329,7 +1340,6 @@
       requestAnimationFrame(loop);
     }
 
-    // init
     setLang("fr");
     restart(false);
     loadAssets().then(() => requestAnimationFrame(loop));
